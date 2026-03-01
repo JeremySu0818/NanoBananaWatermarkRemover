@@ -111,15 +111,12 @@ class MainActivity : ComponentActivity() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
         ) {
-            Text(text = "Watermark Remover", style = MaterialTheme.typography.headlineMedium)
+            Text(text = "🍌 Watermark Remover", style = MaterialTheme.typography.headlineMedium)
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(onClick = { selectImagesLauncher.launch("image/*") }, enabled = !isProcessing) {
-                Text(
-                        if (selectedImageUris.isEmpty()) "Select Image(s)"
-                        else "Select Other Image(s)"
-                )
+                Text(if (selectedImageUris.isEmpty()) "Select Images" else "Select Other Images")
             }
 
             Spacer(modifier = Modifier.height(8.dp))
