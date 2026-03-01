@@ -1,0 +1,27 @@
+# Android
+*.iml
+.gradle/
+local.properties
+/.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aar
+
+# Log files
+*.log
+
+# Built artifacts
+bin/
+gen/
+out/
+
+# IDE settings
+*.iws
+*.ipr
+
+# OS specific
+Thumbs.db
