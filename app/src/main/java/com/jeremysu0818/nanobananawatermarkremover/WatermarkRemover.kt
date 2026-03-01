@@ -11,11 +11,7 @@ class WatermarkRemover(private val context: Context) {
     private val MAX_ALPHA = 0.99f
     private val LOGO_VALUE = 255f
 
-    data class WatermarkConfig(
-        val logoSize: Int,
-        val marginRight: Int,
-        val marginBottom: Int
-    )
+    data class WatermarkConfig(val logoSize: Int, val marginRight: Int, val marginBottom: Int)
 
     private fun detectWatermarkConfig(imageWidth: Int, imageHeight: Int): WatermarkConfig {
         return if (imageWidth > 1024 && imageHeight > 1024) {
@@ -30,7 +26,7 @@ class WatermarkRemover(private val context: Context) {
         val height = bgBitmap.height
         val alphaMap = FloatArray(width * height)
         val pixels = IntArray(width * height)
-        
+
         bgBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
         for (i in pixels.indices) {
@@ -61,12 +57,9 @@ class WatermarkRemover(private val context: Context) {
         val alphaMap = calculateAlphaMap(bgBitmap)
         bgBitmap.recycle()
 
-        // Create a mutable copy to modify
         val resultBitmap = source.copy(Bitmap.Config.ARGB_8888, true)
         val pixels = IntArray(logoSize * logoSize)
-        
-        // Read just the watermark part for efficiency, or we can read the whole image,
-        // but it's better to getPixels just for the bounding box.
+
         resultBitmap.getPixels(pixels, 0, logoSize, x, y, logoSize, logoSize)
 
         for (row in 0 until logoSize) {
@@ -89,14 +82,12 @@ class WatermarkRemover(private val context: Context) {
                 val newR = ((r - alpha * LOGO_VALUE) / oneMinusAlpha).toInt().coerceIn(0, 255)
                 val newG = ((g - alpha * LOGO_VALUE) / oneMinusAlpha).toInt().coerceIn(0, 255)
                 val newB = ((b - alpha * LOGO_VALUE) / oneMinusAlpha).toInt().coerceIn(0, 255)
-                // preserve original alpha
                 val a = Color.alpha(pixel)
 
                 pixels[index] = Color.argb(a, newR, newG, newB)
             }
         }
 
-        // Write the modified pixels back
         resultBitmap.setPixels(pixels, 0, logoSize, x, y, logoSize, logoSize)
 
         return resultBitmap

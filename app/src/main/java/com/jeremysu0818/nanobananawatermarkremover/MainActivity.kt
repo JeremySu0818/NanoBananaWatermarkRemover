@@ -21,35 +21,39 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.OutputStream
 
 class MainActivity : ComponentActivity() {
 
-    private var selectedImageUri by mutableStateOf<Uri?>(null)
-    private var originalBitmap by mutableStateOf<Bitmap?>(null)
-    private var resultBitmap by mutableStateOf<Bitmap?>(null)
+    private var selectedImageUris by mutableStateOf<List<Uri>>(emptyList())
+    private var currentImageIndex by mutableStateOf(0)
+    private var currentOriginalBitmap by mutableStateOf<Bitmap?>(null)
+    private var currentResultBitmap by mutableStateOf<Bitmap?>(null)
     private var isProcessing by mutableStateOf(false)
+    private var processProgress by mutableStateOf(0)
+    private var totalToProcess by mutableStateOf(0)
 
-    private val selectImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let {
-            selectedImageUri = it
-            originalBitmap = loadBitmapFromUri(it)
-            resultBitmap = null
-        }
-    }
+    private val selectImagesLauncher =
+            registerForActivityResult(ActivityResultContracts.GetMultipleContents()) {
+                    uris: List<Uri> ->
+                if (uris.isNotEmpty()) {
+                    selectedImageUris = uris
+                    currentImageIndex = 0
+                    currentOriginalBitmap = loadBitmapFromUri(uris[0])
+                    currentResultBitmap = null
+                    processProgress = 0
+                    totalToProcess = uris.size
+                }
+            }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    WatermarkRemoverScreen()
-                }
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                ) { WatermarkRemoverScreen() }
             }
         }
     }
@@ -67,109 +71,164 @@ class MainActivity : ComponentActivity() {
 
     private fun saveBitmapToGallery(bitmap: Bitmap) {
         val resolver = contentResolver
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "watermark_removed_${System.currentTimeMillis()}.png")
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/WatermarkRemover")
-        }
+        val contentValues =
+                ContentValues().apply {
+                    put(
+                            MediaStore.MediaColumns.DISPLAY_NAME,
+                            "watermark_removed_${System.currentTimeMillis()}.png"
+                    )
+                    put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/WatermarkRemover")
+                }
 
         val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
         if (imageUri != null) {
             try {
                 resolver.openOutputStream(imageUri)?.use { outputStream: OutputStream ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-                    Toast.makeText(this, "Saved to gallery", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                Toast.makeText(this, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
             }
-        } else {
-            Toast.makeText(this, "Failed to create MediaStore entry", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun loadCurrentImage(index: Int) {
+        if (index in selectedImageUris.indices) {
+            currentImageIndex = index
+            currentOriginalBitmap = loadBitmapFromUri(selectedImageUris[index])
+            currentResultBitmap = null
         }
     }
 
     @Composable
     fun WatermarkRemoverScreen() {
         val context = LocalContext.current
-        val coroutineScope = rememberCoroutineScope()
 
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                modifier =
+                        Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
         ) {
             Text(text = "Watermark Remover", style = MaterialTheme.typography.headlineMedium)
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(onClick = { selectImageLauncher.launch("image/*") }) {
-                Text("Select Image")
+            Button(onClick = { selectImagesLauncher.launch("image/*") }, enabled = !isProcessing) {
+                Text(
+                        if (selectedImageUris.isEmpty()) "Select Image(s)"
+                        else "Select Other Image(s)"
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (selectedImageUris.isNotEmpty()) {
+                Text(
+                        text = "Selected: ${selectedImageUris.size} image(s)",
+                        style = MaterialTheme.typography.bodyMedium
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             if (isProcessing) {
                 CircularProgressIndicator()
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Processing: $processProgress / $totalToProcess")
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Display current bitmap
-            val displayBitmap = resultBitmap ?: originalBitmap
+            val displayBitmap = currentResultBitmap ?: currentOriginalBitmap
 
             if (displayBitmap != null) {
                 Image(
-                    bitmap = displayBitmap.asImageBitmap(),
-                    contentDescription = "Image to process",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(300.dp)
+                        bitmap = displayBitmap.asImageBitmap(),
+                        contentDescription = "Image to process",
+                        modifier = Modifier.fillMaxWidth().height(300.dp)
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                if (selectedImageUris.size > 1) {
+                    Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        Button(
+                                onClick = { loadCurrentImage(currentImageIndex - 1) },
+                                enabled = !isProcessing && currentImageIndex > 0
+                        ) { Text("Previous") }
+                        Text(
+                                text = "${currentImageIndex + 1} / ${selectedImageUris.size}",
+                                modifier = Modifier.align(Alignment.CenterVertically)
+                        )
+                        Button(
+                                onClick = { loadCurrentImage(currentImageIndex + 1) },
+                                enabled =
+                                        !isProcessing &&
+                                                currentImageIndex < selectedImageUris.size - 1
+                        ) { Text("Next") }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     Button(
-                        onClick = {
-                            if (originalBitmap != null) {
+                            onClick = {
                                 isProcessing = true
-                                val remover = WatermarkRemover(context)
-                                // Move to background thread since image processing might be slow
-                                Thread {
-                                    try {
-                                        val newBitmap = remover.removeWatermark(originalBitmap!!)
-                                        // Update UI on main thread
-                                        runOnUiThread {
-                                            resultBitmap = newBitmap
-                                            isProcessing = false
-                                        }
-                                    } catch (e: Exception) {
-                                        runOnUiThread {
-                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                                            isProcessing = false
-                                        }
-                                    }
-                                }.start()
-                            }
-                        },
-                        enabled = originalBitmap != null && !isProcessing && resultBitmap == null
-                    ) {
-                        Text("Remove")
-                    }
+                                processProgress = 0
+                                totalToProcess = selectedImageUris.size
+                                val urisToProcess = selectedImageUris.toList()
 
-                    Button(
-                        onClick = {
-                            resultBitmap?.let { saveBitmapToGallery(it) }
-                        },
-                        enabled = resultBitmap != null && !isProcessing
+                                Thread {
+                                            val remover = WatermarkRemover(context)
+                                            urisToProcess.forEachIndexed { index, uri ->
+                                                try {
+                                                    val original = loadBitmapFromUri(uri)
+                                                    if (original != null) {
+                                                        runOnUiThread {
+                                                            currentImageIndex = index
+                                                            currentOriginalBitmap = original
+                                                            currentResultBitmap = null
+                                                        }
+                                                        val result =
+                                                                remover.removeWatermark(original)
+                                                        runOnUiThread {
+                                                            currentResultBitmap = result
+                                                        }
+                                                        saveBitmapToGallery(result)
+                                                    }
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                                runOnUiThread { processProgress = index + 1 }
+                                            }
+                                            runOnUiThread {
+                                                isProcessing = false
+                                                Toast.makeText(
+                                                                context,
+                                                                "Processed and saved $totalToProcess image(s)",
+                                                                Toast.LENGTH_LONG
+                                                        )
+                                                        .show()
+                                            }
+                                        }
+                                        .start()
+                            },
+                            enabled =
+                                    !isProcessing &&
+                                            selectedImageUris.isNotEmpty() &&
+                                            processProgress < selectedImageUris.size
                     ) {
-                        Text("Save")
+                        Text(
+                                if (selectedImageUris.size > 1) "Process All & Save"
+                                else "Remove & Save"
+                        )
                     }
                 }
             }
