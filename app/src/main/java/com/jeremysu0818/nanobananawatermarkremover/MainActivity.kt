@@ -1,6 +1,7 @@
 package com.jeremysu0818.nanobananawatermarkremover
 
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -48,6 +49,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleShareIntent(intent)
         setContent {
             MaterialTheme {
                 Surface(
@@ -55,6 +57,45 @@ class MainActivity : ComponentActivity() {
                         color = MaterialTheme.colorScheme.background
                 ) { WatermarkRemoverScreen() }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleShareIntent(intent)
+    }
+
+    private fun handleShareIntent(intent: Intent) {
+        when (intent.action) {
+            Intent.ACTION_SEND -> {
+                if (intent.type?.startsWith("image/") == true) {
+                    val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                    if (uri != null) {
+                        handleSharedImages(listOf(uri))
+                    }
+                }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                if (intent.type?.startsWith("image/") == true) {
+                    val uris = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                    if (!uris.isNullOrEmpty()) {
+                        handleSharedImages(uris)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleSharedImages(uris: List<Uri>) {
+        if (uris.isNotEmpty()) {
+            selectedImageUris = uris
+            currentImageIndex = 0
+            currentOriginalBitmap = loadBitmapFromUri(uris[0])
+            currentResultBitmap = null
+            processProgress = 0
+            totalToProcess = uris.size
+        } else {
+            Toast.makeText(this, "No valid images received", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -101,76 +142,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun pasteFromClipboard(context: android.content.Context) {
-        val clipboard =
-                context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as
-                        android.content.ClipboardManager
-        if (clipboard.hasPrimaryClip()) {
-            val clip = clipboard.primaryClip
-            if (clip != null && clip.itemCount > 0) {
-                val item = clip.getItemAt(0)
-                val uri = item.uri
-                if (uri != null) {
-                    try {
-                        val originalBitmap =
-                                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                                    BitmapFactory.decodeStream(inputStream)
-                                }
-                        if (originalBitmap != null) {
-                            val bitmap =
-                                    if (originalBitmap.width == 572 && originalBitmap.height == 1024
-                                    ) {
-                                        Bitmap.createScaledBitmap(originalBitmap, 768, 1376, true)
-                                    } else if (originalBitmap.width == 1024 &&
-                                                    originalBitmap.height == 572
-                                    ) {
-                                        Bitmap.createScaledBitmap(originalBitmap, 1376, 768, true)
-                                    } else {
-                                        originalBitmap
-                                    }
-
-                            val cacheFile =
-                                    java.io.File(
-                                            context.cacheDir,
-                                            "pasted_${System.currentTimeMillis()}.png"
-                                    )
-                            java.io.FileOutputStream(cacheFile).use { out ->
-                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-                            }
-                            val cachedUri = Uri.fromFile(cacheFile)
-
-                            selectedImageUris = listOf(cachedUri)
-                            currentImageIndex = 0
-                            currentOriginalBitmap = loadBitmapFromUri(cachedUri)
-                            currentResultBitmap = null
-                            processProgress = 0
-                            totalToProcess = 1
-                        } else {
-                            Toast.makeText(
-                                            context,
-                                            "No image found in clipboard",
-                                            Toast.LENGTH_SHORT
-                                    )
-                                    .show()
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        Toast.makeText(context, "Failed to paste image", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    Toast.makeText(
-                                    context,
-                                    "Clipboard item does not contain a URI",
-                                    Toast.LENGTH_SHORT
-                            )
-                            .show()
-                }
-            }
-        } else {
-            Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     @Composable
     fun WatermarkRemoverScreen() {
         val context = LocalContext.current
@@ -185,23 +156,8 @@ class MainActivity : ComponentActivity() {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                Button(
-                        onClick = { selectImagesLauncher.launch("image/*") },
-                        enabled = !isProcessing
-                ) {
-                    Text(
-                            if (selectedImageUris.isEmpty()) "Select Images"
-                            else "Select Other Images"
-                    )
-                }
-
-                Button(onClick = { pasteFromClipboard(context) }, enabled = !isProcessing) {
-                    Text("Paste")
-                }
+            Button(onClick = { selectImagesLauncher.launch("image/*") }, enabled = !isProcessing) {
+                Text(if (selectedImageUris.isEmpty()) "Select Images" else "Select Other Images")
             }
 
             Spacer(modifier = Modifier.height(8.dp))
